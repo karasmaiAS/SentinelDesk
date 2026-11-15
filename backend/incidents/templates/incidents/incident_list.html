@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+
+{% block title %}My incidents | SentinelDesk{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h2 mb-0">My incidents</h1>
+  <a class="btn btn-primary" href="{% url 'incidents:create' %}">New report</a>
+</div>
+<div class="card shadow-sm">
+  {% if incidents %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead><tr><th>Title</th><th>Category</th><th>Severity</th><th>Status</th><th>Submitted</th></tr></thead>
+        <tbody>
+          {% for incident in incidents %}
+            <tr>
+              <td><a href="{% url 'incidents:detail' incident.pk %}">{{ incident.title }}</a></td>
+              <td>{{ incident.get_category_display }}</td>
+              <td>{{ incident.get_severity_display }}</td>
+              <td>{{ incident.get_status_display }}</td>
+              <td>{{ incident.created_at|date:"M j, Y" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card-body text-secondary">No reports yet. Submit one to get started.</div>
+  {% endif %}
+</div>
+{% endblock %}

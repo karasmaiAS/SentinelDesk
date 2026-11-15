@@ -1,0 +1,176 @@
+{% extends "core/base.html" %}
+
+{% block title %}Admin Dashboard | SentinelDesk{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>Security operations</h2>
+    <p>Current incident and account metrics from SentinelDesk.</p>
+  </div>
+</section>
+
+<section class="sd-metric-grid" aria-label="System statistics">
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Total incidents</div>
+      <div class="sd-metric-value">{{ total_incidents }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Open incidents</div>
+      <div class="sd-metric-value">{{ open_incidents }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Critical incidents</div>
+      <div class="sd-metric-value is-critical">{{ critical_incidents }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Resolved incidents</div>
+      <div class="sd-metric-value">{{ resolved_incidents }}</div>
+    </div>
+  </article>
+  {% if active_users is not None %}
+    <article class="sd-metric">
+      <div class="sd-metric-body">
+        <div class="sd-metric-label">Active users</div>
+        <div class="sd-metric-value">{{ active_users }}</div>
+      </div>
+    </article>
+  {% endif %}
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Open security alerts</div>
+      <div class="sd-metric-value">{{ open_alerts }}</div>
+    </div>
+  </article>
+</section>
+
+<section class="sd-dashboard-grid" aria-label="Incident charts">
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Incidents by severity</h3></header>
+    <div class="sd-chart-wrap"><canvas id="severity-chart" aria-label="Incidents by severity" role="img"></canvas></div>
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Incidents by category</h3></header>
+    <div class="sd-chart-wrap"><canvas id="category-chart" aria-label="Incidents by category" role="img"></canvas></div>
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Incident trend · last 7 days</h3></header>
+    <div class="sd-chart-wrap"><canvas id="trend-chart" aria-label="Incident submissions in the last seven days" role="img"></canvas></div>
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Latest reports</h3></header>
+    {% if recent_incidents %}
+      <div class="sd-table-wrap">
+        <table class="sd-incident-table">
+          <thead>
+            <tr><th>Incident</th><th>Severity</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {% for incident in recent_incidents %}
+              <tr>
+                <td>
+                  <a href="{% url 'core:monitored_incident_detail' incident.pk %}"><strong>{{ incident.title }}</strong></a><br>
+                  <span class="text-secondary">{{ incident.reporter.username }} · {{ incident.created_at|date:"M j, Y" }}</span>
+                </td>
+                <td><span class="sd-pill severity-{{ incident.severity }}">{{ incident.get_severity_display }}</span></td>
+                <td><span class="sd-pill">{{ incident.get_status_display }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No incidents have been reported yet.</div>
+    {% endif %}
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Recent activity</h3></header>
+    {% if recent_activity %}
+      <div class="sd-activity-list">
+        {% for entry in recent_activity %}
+          <div class="sd-activity-item">
+            <div class="sd-activity-title">{{ entry.get_action_display }}</div>
+            <div class="text-secondary">{{ entry.description }}</div>
+            <time class="text-secondary" datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"M j, H:i" }}</time>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No recent incident activity.</div>
+    {% endif %}
+  </article>
+</section>
+
+{{ severity_chart|json_script:"severity-chart-data" }}
+{{ category_chart|json_script:"category-chart-data" }}
+{{ trend_chart|json_script:"trend-chart-data" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+  const chartColors = {
+    text: getComputedStyle(document.documentElement).getPropertyValue("--sd-color-textMuted").trim(),
+    border: getComputedStyle(document.documentElement).getPropertyValue("--sd-color-border").trim(),
+    surface: getComputedStyle(document.documentElement).getPropertyValue("--sd-color-surface").trim()
+  };
+  const severityData = JSON.parse(document.getElementById("severity-chart-data").textContent);
+  const categoryData = JSON.parse(document.getElementById("category-chart-data").textContent);
+  const trendData = JSON.parse(document.getElementById("trend-chart-data").textContent);
+
+  Chart.defaults.color = chartColors.text;
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+  new Chart(document.getElementById("severity-chart"), {
+    type: "doughnut",
+    data: {
+      labels: severityData.labels,
+      datasets: [{ data: severityData.values, backgroundColor: severityData.colors, borderColor: chartColors.surface, borderWidth: 3 }]
+    },
+    options: { maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+  });
+
+  new Chart(document.getElementById("category-chart"), {
+    type: "bar",
+    data: {
+      labels: categoryData.labels,
+      datasets: [{ label: "Incidents", data: categoryData.values, backgroundColor: categoryData.color, borderRadius: 5 }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: chartColors.border } }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  new Chart(document.getElementById("trend-chart"), {
+    type: "line",
+    data: {
+      labels: trendData.labels,
+      datasets: [{
+        label: "Reports",
+        data: trendData.values,
+        borderColor: trendData.color,
+        backgroundColor: `${trendData.color}33`,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: chartColors.border } }
+      }
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "core/base.html" %}
+
+{% block title %}Activity Logs | SentinelDesk{% endblock %}
+{% block page_title %}Activity Logs{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>Security activity</h2>
+    <p>Recent recorded authentication and investigation actions.</p>
+  </div>
+</section>
+<section class="sd-panel">
+  {% if entries %}
+    <div class="sd-table-wrap">
+      <table class="sd-incident-table">
+        <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Details</th><th>Incident</th><th>Source IP</th></tr></thead>
+        <tbody>
+          {% for entry in entries %}
+            <tr>
+              <td>{{ entry.created_at|date:"M j, Y H:i" }}</td>
+              <td>{% if entry.actor %}{{ entry.actor.username }}{% else %}System / unknown{% endif %}</td>
+              <td>{{ entry.get_action_display }}</td>
+              <td>{{ entry.description }}</td>
+              <td>{% if entry.incident %}<a href="{% url 'core:monitored_incident_detail' entry.incident_id %}">{{ entry.incident.title }}</a>{% else %}&mdash;{% endif %}</td>
+              <td>{{ entry.source_ip|default:"Not recorded" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No activity entries are available to your role.</div>
+  {% endif %}
+</section>
+{% endblock %}

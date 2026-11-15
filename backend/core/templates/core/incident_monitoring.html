@@ -1,0 +1,92 @@
+{% extends "core/base.html" %}
+
+{% block title %}Incident Monitoring | SentinelDesk{% endblock %}
+{% block page_title %}Incident Monitoring{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>Reported incidents</h2>
+    <p>Search and filter the incident queue. Results are limited to 25 per page.</p>
+  </div>
+</section>
+
+<form class="sd-filter-panel" method="get">
+  <div class="sd-filter-grid">
+    <div>
+      <label for="filter-q">Search</label>
+      <input class="form-control" id="filter-q" type="search" name="q" value="{{ search_query }}" placeholder="Title, description, reporter">
+    </div>
+    <div>
+      <label for="filter-category">Category</label>
+      <select class="form-select" id="filter-category" name="category">
+        <option value="">All categories</option>
+        {% for value, label in category_choices %}
+          <option value="{{ value }}"{% if selected_category == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="filter-severity">Severity</label>
+      <select class="form-select" id="filter-severity" name="severity">
+        <option value="">All severities</option>
+        {% for value, label in severity_choices %}
+          <option value="{{ value }}"{% if selected_severity == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="filter-status">Status</label>
+      <select class="form-select" id="filter-status" name="status">
+        <option value="">All statuses</option>
+        {% for value, label in status_choices %}
+          <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="sd-filter-actions">
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a class="btn btn-outline-secondary" href="{% url 'core:incident_monitoring' %}">Clear</a>
+    </div>
+  </div>
+</form>
+
+<section class="sd-panel" aria-label="Incident results">
+  {% if page_obj.object_list %}
+    <div class="sd-table-wrap">
+      <table class="sd-incident-table">
+        <thead>
+          <tr><th>Incident</th><th>Category</th><th>Severity</th><th>Status</th><th>Assigned analyst</th></tr>
+        </thead>
+        <tbody>
+          {% for incident in page_obj %}
+            <tr>
+              <td>
+                <a href="{% url 'core:monitored_incident_detail' incident.pk %}"><strong>{{ incident.title }}</strong></a><br>
+                <span class="text-secondary">{{ incident.reporter.username }} · {{ incident.created_at|date:"M j, Y" }}</span>
+              </td>
+              <td>{{ incident.get_category_display }}</td>
+              <td><span class="sd-pill severity-{{ incident.severity }}">{{ incident.get_severity_display }}</span></td>
+              <td><span class="sd-pill">{{ incident.get_status_display }}</span></td>
+              <td>{% if incident.assigned_analyst %}{{ incident.assigned_analyst.username }}{% else %}<span class="text-secondary">Unassigned</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="sd-pagination">
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} incidents</span>
+      <div class="d-flex gap-2">
+        {% if page_obj.has_previous %}
+          <a class="btn btn-outline-secondary btn-sm" href="?{% if filter_query %}{{ filter_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a class="btn btn-outline-secondary btn-sm" href="?{% if filter_query %}{{ filter_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No incidents match the selected filters.</div>
+  {% endif %}
+</section>
+{% endblock %}

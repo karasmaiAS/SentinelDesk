@@ -1,0 +1,118 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ incident.title }} | SOC | SentinelDesk{% endblock %}
+{% block page_title %}Incident Details{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <a href="{% url 'core:incident_monitoring' %}">&larr; Incident monitoring</a>
+    <h2 class="mt-2">{{ incident.title }}</h2>
+    <p>Reported {{ incident.created_at|date:"M j, Y H:i" }}</p>
+  </div>
+  <span class="sd-pill severity-{{ incident.severity }}">{{ incident.get_severity_display }}</span>
+</section>
+
+<section class="sd-detail-grid">
+  <article class="sd-detail-card">
+    <h2>Incident information</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-4">Category</dt><dd class="col-sm-8">{{ incident.get_category_display }}</dd>
+      <dt class="col-sm-4">Severity</dt><dd class="col-sm-8">{{ incident.get_severity_display }}</dd>
+      <dt class="col-sm-4">Status</dt><dd class="col-sm-8">{{ incident.get_status_display }}</dd>
+      <dt class="col-sm-4">Last updated</dt><dd class="col-sm-8">{{ incident.updated_at|date:"M j, Y H:i" }}</dd>
+    </dl>
+  </article>
+  <article class="sd-detail-card">
+    <h2>Reporter and assignment</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-4">Reporter</dt><dd class="col-sm-8">{{ incident.reporter.username }}</dd>
+      <dt class="col-sm-4">Email</dt><dd class="col-sm-8">{{ incident.reporter.email|default:"Not provided" }}</dd>
+      <dt class="col-sm-4">Analyst</dt>
+      <dd class="col-sm-8">{% if incident.assigned_analyst %}{{ incident.assigned_analyst.username }}{% else %}Unassigned{% endif %}</dd>
+    </dl>
+  </article>
+  <article class="sd-detail-card">
+    <h2>Description</h2>
+    <div class="sd-detail-value">{{ incident.description|linebreaksbr }}</div>
+  </article>
+  <article class="sd-detail-card">
+    <h2>Evidence reference</h2>
+    <div class="sd-detail-value">
+      {% if incident.evidence_reference %}{{ incident.evidence_reference|urlize }}{% else %}<span class="text-secondary">No evidence reference provided.</span>{% endif %}
+    </div>
+  </article>
+</section>
+
+<section class="sd-detail-grid mt-3">
+  {% if can_investigate %}
+    <article class="sd-detail-card">
+      <h2>Investigation updates</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update">
+        {% for field in update_form %}
+          <div class="sd-registration-field">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+        {% for error in update_form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+        <button class="btn btn-primary" type="submit">Save incident updates</button>
+      </form>
+    </article>
+    <article class="sd-detail-card">
+      <h2>Add investigation note</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="note">
+        {% for field in note_form %}
+          <div class="sd-registration-field">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+        {% for error in note_form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+        <button class="btn btn-primary" type="submit">Add note</button>
+      </form>
+    </article>
+  {% endif %}
+
+  {% if can_assign %}
+    <article class="sd-detail-card">
+      <h2>Assign analyst</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="assign">
+        <div class="sd-registration-field">
+          <label class="form-label" for="{{ assignment_form.analyst.id_for_label }}">Analyst</label>
+          {{ assignment_form.analyst }}
+          {% for error in assignment_form.analyst.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        </div>
+        <button class="btn btn-primary" type="submit">Save assignment</button>
+      </form>
+    </article>
+  {% endif %}
+</section>
+
+<section class="sd-panel mt-3">
+  <header class="sd-panel-header"><h3>Investigation history</h3></header>
+  {% if notes %}
+    <div class="p-3">
+      {% for note in notes %}
+        <article class="sd-history-entry">
+          <div class="d-flex justify-content-between gap-2">
+            <strong>{{ note.analyst.username }}</strong>
+            <time class="text-secondary" datetime="{{ note.created_at|date:'c' }}">{{ note.created_at|date:"M j, Y H:i" }}</time>
+          </div>
+          <p class="mb-0 mt-2">{{ note.content|linebreaksbr }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No investigation notes have been added.</div>
+  {% endif %}
+</section>
+{% endblock %}

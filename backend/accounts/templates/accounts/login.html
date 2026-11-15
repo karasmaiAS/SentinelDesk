@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}
+
+{% block title %}Log in | SentinelDesk{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h3 mb-3">Log in</h1>
+        {% if form.errors %}<div class="alert alert-danger">The username or password was not accepted.</div>{% endif %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next }}">
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.username.id_for_label }}">Username</label>
+            <input class="form-control" type="text" name="username" id="{{ form.username.id_for_label }}" autocomplete="username" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.password.id_for_label }}">Password</label>
+            <input class="form-control" type="password" name="password" id="{{ form.password.id_for_label }}" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary" type="submit">Log in</button>
+        </form>
+        <p class="mt-3 mb-0">Need an account? <a href="{% url 'accounts:register' %}">Register</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

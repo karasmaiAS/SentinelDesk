@@ -1,0 +1,55 @@
+{% extends "core/base.html" %}
+
+{% block title %}User Management | SentinelDesk{% endblock %}
+{% block page_title %}{% if selected_role == "Security Analyst" %}Analyst Management{% else %}User Management{% endif %}{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>{% if selected_role == "Security Analyst" %}Security analysts{% else %}User accounts{% endif %}</h2>
+    <p>Assign a role and activate or deactivate each account. Superuser accounts are protected.</p>
+  </div>
+</section>
+<form class="sd-filter-panel" method="get">
+  {% if selected_role %}<input type="hidden" name="role" value="{{ selected_role }}">{% endif %}
+  <div class="d-flex gap-2">
+    <input class="form-control" type="search" name="q" value="{{ search_query }}" placeholder="Search username or email" aria-label="Search users">
+    <button class="btn btn-primary" type="submit">Search</button>
+  </div>
+</form>
+<div class="sd-panel">
+  {% if user_rows %}
+    <div class="sd-table-wrap">
+      <table class="sd-incident-table">
+        <thead><tr><th>User</th><th>Role</th><th>Active</th><th>Update</th></tr></thead>
+        <tbody>
+          {% for row in user_rows %}
+            <tr>
+              <td>{{ row.user.username }}<br><span class="text-secondary">{{ row.user.email|default:"No email" }}</span></td>
+              <td colspan="3">
+                <form method="post" class="sd-user-management-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="user_id" value="{{ row.user.pk }}">
+                  {% for error in row.form.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                  <div class="sd-user-management-controls">
+                    <div>
+                      {{ row.form.role }}
+                      {% for error in row.form.role.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    </div>
+                    <label class="form-check">
+                      {{ row.form.is_active }}<span class="form-check-label">Active</span>
+                    </label>
+                    <button class="btn btn-outline-primary btn-sm" type="submit">Save</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No matching accounts.</div>
+  {% endif %}
+</div>
+{% endblock %}

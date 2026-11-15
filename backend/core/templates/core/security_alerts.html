@@ -1,0 +1,49 @@
+{% extends "core/base.html" %}
+
+{% block title %}Security Alerts | SentinelDesk{% endblock %}
+{% block page_title %}Security Alerts{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>Security alerts</h2>
+    <p>Alerts are generated from recorded SentinelDesk authentication events.</p>
+  </div>
+</section>
+<section class="sd-panel">
+  {% if alerts %}
+    <div class="sd-table-wrap">
+      <table class="sd-incident-table">
+        <thead><tr><th>Alert</th><th>Type</th><th>Severity</th><th>Source</th><th>Status</th>{% if can_manage %}<th>Update</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for alert in alerts %}
+            <tr>
+              <td><strong>{{ alert.title }}</strong><br><span class="text-secondary">{{ alert.description }}</span><br><span class="text-secondary">{{ alert.created_at|date:"M j, Y H:i" }}</span></td>
+              <td>{{ alert.get_alert_type_display }}</td>
+              <td><span class="sd-pill severity-{{ alert.severity }}">{{ alert.get_severity_display }}</span></td>
+              <td>{% if alert.source_ip %}{{ alert.source_ip }}{% else %}Not recorded{% endif %}</td>
+              <td><span class="sd-pill">{{ alert.get_status_display }}</span></td>
+              {% if can_manage %}
+                <td>
+                  <form method="post" class="d-flex gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="alert_id" value="{{ alert.pk }}">
+                    <select class="form-select" name="status" aria-label="Alert status">
+                      {% for value, label in alert_status_choices %}
+                        <option value="{{ value }}"{% if alert.status == value %} selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" type="submit">Save</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No security alerts have been recorded.</div>
+  {% endif %}
+</section>
+{% endblock %}

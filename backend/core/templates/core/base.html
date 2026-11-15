@@ -1,0 +1,115 @@
+<!doctype html>
+{% load static %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SentinelDesk{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{% static 'core/css/sentineldesk.css' %}" rel="stylesheet">
+  <style>
+    :root {
+      {% for name, value in design_tokens.colors.items %}--sd-color-{{ name }}: {{ value }};{% endfor %}
+      {% for name, value in design_tokens.typography.items %}--sd-type-{{ name }}: {{ value }};{% endfor %}
+      {% for name, value in design_tokens.spacing.items %}--sd-space-{{ name }}: {{ value }};{% endfor %}
+      {% for name, value in design_tokens.radii.items %}--sd-radius-{{ name }}: {{ value }};{% endfor %}
+      {% for name, value in design_tokens.shadows.items %}--sd-shadow-{{ name }}: {{ value }};{% endfor %}
+      {% for name, value in design_tokens.layout.items %}--sd-layout-{{ name }}: {{ value }};{% endfor %}
+      color-scheme: dark;
+    }
+  </style>
+</head>
+<body>
+  <div class="sd-shell{% if not user.is_authenticated %} sd-shell--public{% endif %}">
+    {% if user.is_authenticated %}
+    <aside class="sd-sidebar" aria-label="Main navigation">
+      <a class="sd-brand" href="{% url 'core:home' %}">
+        <span class="sd-brand-mark" aria-hidden="true">S</span>
+        <span>SentinelDesk</span>
+      </a>
+      <div class="sd-nav-label">Workspace</div>
+      <nav class="sd-nav">
+        {% if user.is_authenticated %}
+          <a class="sd-nav-link" href="{% url 'accounts:profile' %}">
+            <span class="sd-nav-icon" aria-hidden="true">♙</span> My profile
+          </a>
+          {% if user.is_staff %}
+            <a class="sd-nav-link" href="{% url 'core:admin_dashboard' %}">
+              <span class="sd-nav-icon" aria-hidden="true">◈</span> Admin dashboard
+            </a>
+            <a class="sd-nav-link" href="{% url 'core:incident_monitoring' %}">
+              <span class="sd-nav-icon" aria-hidden="true">▤</span> Incident monitoring
+            </a>
+            <a class="sd-nav-link" href="{% url 'core:security_alerts' %}">
+              <span class="sd-nav-icon" aria-hidden="true">!</span> Security alerts
+            </a>
+            <a class="sd-nav-link" href="{% url 'core:activity_logs' %}">
+              <span class="sd-nav-icon" aria-hidden="true">◷</span> Activity logs
+            </a>
+            {% if sentineldesk_is_administrator %}
+              <a class="sd-nav-link" href="{% url 'accounts:user_management' %}">
+                <span class="sd-nav-icon" aria-hidden="true">♙</span> User management
+              </a>
+              <a class="sd-nav-link" href="{% url 'accounts:analyst_management' %}?role=Security%20Analyst">
+                <span class="sd-nav-icon" aria-hidden="true">♟</span> Analyst management
+              </a>
+            {% endif %}
+            <a class="sd-nav-link" href="{% url 'admin:index' %}">
+              <span class="sd-nav-icon" aria-hidden="true">⚙</span> Django admin (fallback)
+            </a>
+          {% else %}
+            <a class="sd-nav-link" href="{% url 'incidents:dashboard' %}">
+              <span class="sd-nav-icon" aria-hidden="true">◈</span> My dashboard
+            </a>
+            <a class="sd-nav-link" href="{% url 'incidents:create' %}">
+              <span class="sd-nav-icon" aria-hidden="true">＋</span> Submit incident
+            </a>
+            <a class="sd-nav-link" href="{% url 'incidents:list' %}">
+              <span class="sd-nav-icon" aria-hidden="true">▤</span> My incidents
+            </a>
+          {% endif %}
+        {% else %}
+          <a class="sd-nav-link" href="{% url 'core:home' %}">
+            <span class="sd-nav-icon" aria-hidden="true">◈</span> Home
+          </a>
+          <a class="sd-nav-link" href="{% url 'accounts:login' %}">
+            <span class="sd-nav-icon" aria-hidden="true">→</span> Log in
+          </a>
+          <a class="sd-nav-link" href="{% url 'accounts:register' %}">
+            <span class="sd-nav-icon" aria-hidden="true">＋</span> Create account
+          </a>
+        {% endif %}
+      </nav>
+      <div class="sd-sidebar-footer">Incident reporting and response</div>
+    </aside>
+    {% endif %}
+    <div class="sd-main">
+      <header class="sd-topbar">
+        <h1 class="sd-page-title">{% block page_title %}SentinelDesk{% endblock %}</h1>
+        <div class="sd-topbar-meta">
+          {% if user.is_authenticated %}
+            <span>{{ user.username }}</span>
+            <span class="sd-role">{{ sentineldesk_role }}</span>
+            <form method="post" action="{% url 'accounts:logout' %}">
+              {% csrf_token %}
+              <button class="btn btn-outline-secondary btn-sm" type="submit">Log out</button>
+            </form>
+          {% else %}
+            <span>Incident reporting portal</span>
+          {% endif %}
+        </div>
+      </header>
+      <main class="sd-content">
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

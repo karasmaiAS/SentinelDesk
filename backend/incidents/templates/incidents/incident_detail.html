@@ -1,0 +1,50 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ incident.title }} | SentinelDesk{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <a href="{% url 'incidents:list' %}" class="text-decoration-none">&larr; My incidents</a>
+    <h1 class="h2 mt-2">{{ incident.title }}</h1>
+  </div>
+  <span class="badge text-bg-secondary">{{ incident.get_status_display }}</span>
+</div>
+<div class="card shadow-sm">
+  <div class="card-body">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">Category</dt><dd class="col-sm-9">{{ incident.get_category_display }}</dd>
+      <dt class="col-sm-3">Severity</dt><dd class="col-sm-9">{{ incident.get_severity_display }}</dd>
+      <dt class="col-sm-3">Submitted</dt><dd class="col-sm-9">{{ incident.created_at|date:"M j, Y H:i" }}</dd>
+      <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ incident.description|linebreaksbr }}</dd>
+      {% if incident.evidence_reference %}
+        <dt class="col-sm-3">Evidence reference</dt><dd class="col-sm-9">{{ incident.evidence_reference|urlize }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+</div>
+{% if incident.resolution_summary %}
+  <div class="sd-detail-card mt-3">
+    <h2>Resolution summary</h2>
+    <div>{{ incident.resolution_summary|linebreaksbr }}</div>
+  </div>
+{% endif %}
+<section class="sd-panel mt-3">
+  <header class="sd-panel-header"><h3>Progress updates</h3></header>
+  {% if status_history %}
+    <div class="p-3">
+      {% for entry in status_history %}
+        <article class="sd-history-entry">
+          <div class="d-flex justify-content-between gap-2">
+            <strong>{{ entry.get_action_display }}</strong>
+            <time class="text-secondary" datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"M j, Y H:i" }}</time>
+          </div>
+          <p class="mb-0 mt-2">{{ entry.description }}</p>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No investigation updates yet.</div>
+  {% endif %}
+</section>
+{% endblock %}
