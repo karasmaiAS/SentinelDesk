@@ -186,7 +186,7 @@ class RegistrationAndAuthenticationTests(TestCase):
         alert = SecurityAlert.objects.get(
             alert_type=SecurityAlert.AlertType.REPEATED_FAILED_LOGINS
         )
-        self.assertEqual(alert.severity, SecurityAlert.Severity.MEDIUM)
+        self.assertEqual(alert.severity, SecurityAlert.Severity.HIGH)
         self.assertNotIn("NotARealPassword!", alert.description)
 
     def test_successful_login_after_failures_creates_suspicious_login_alert(self):

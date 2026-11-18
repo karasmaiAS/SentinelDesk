@@ -301,6 +301,17 @@ a:hover {
   margin-bottom: var(--sd-space-lg);
 }
 
+.sd-dashboard-intro > div,
+.sd-incident-detail-header > div {
+  min-width: 0;
+}
+
+.sd-incident-title,
+.sd-incident-description {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .sd-dashboard-intro h2 {
   margin: 0 0 var(--sd-space-xs);
   font-size: var(--sd-type-sizeXl);

@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from functools import wraps
+
 from django.contrib.auth import get_user_model
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -7,8 +10,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
+from django.utils import timezone
 
-from incidents.models import ActivityLog
+from incidents.models import ActivityLog, LoginAttempt
 from incidents.services import log_activity
 
 from .forms import (
@@ -22,8 +26,50 @@ from .roles import get_role, is_administrator
 from .services import update_managed_user
 
 
+MAX_LOGIN_FAILURES = 10
+LOGIN_FAILURE_WINDOW = timedelta(minutes=15)
+LOGIN_LOCKOUT_WINDOW = timedelta(minutes=15)
+
+
 class UserLoginView(LoginView):
     template_name = "accounts/login.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        lockout_until = request.session.get("login_lockout_until")
+        if lockout_until:
+            lockout_time = datetime.fromisoformat(lockout_until)
+            if timezone.now() < lockout_time:
+                form = self.get_form()
+                form.add_error(
+                    None,
+                    "Too many failed sign-in attempts. Please wait 15 minutes before trying again.",
+                )
+                return self.render_to_response(self.get_context_data(form=form), status=429)
+            del request.session["login_lockout_until"]
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        username = (self.request.POST.get("username") or "").strip()
+        if username:
+            failures = LoginAttempt.objects.filter(
+                username__iexact=username,
+                successful=False,
+                attempted_at__gte=timezone.now() - LOGIN_FAILURE_WINDOW,
+            ).count()
+            if failures >= MAX_LOGIN_FAILURES:
+                self.request.session["login_lockout_until"] = (
+                    timezone.now() + LOGIN_LOCKOUT_WINDOW
+                ).isoformat()
+                form.add_error(
+                    None,
+                    "Too many failed sign-in attempts. Please wait 15 minutes before trying again.",
+                )
+                return self.render_to_response(self.get_context_data(form=form), status=429)
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        self.request.session.pop("login_lockout_until", None)
+        return super().form_valid(form)
 
     def get_success_url(self):
         next_url = self.get_redirect_url()
@@ -57,6 +103,7 @@ def register(request):
 
 
 def administrator_required(view):
+    @wraps(view)
     def wrapped(request, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect(f"{reverse_lazy('accounts:login')}?next={request.path}")

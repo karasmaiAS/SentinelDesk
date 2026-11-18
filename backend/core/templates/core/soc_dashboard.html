@@ -50,6 +50,61 @@
       <div class="sd-metric-value">{{ open_alerts }}</div>
     </div>
   </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Generated alerts</div>
+      <div class="sd-metric-value">{{ detection_overview.total_generated_alerts }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Critical generated alerts</div>
+      <div class="sd-metric-value is-critical">{{ detection_overview.alerts_by_severity.critical }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">High generated alerts</div>
+      <div class="sd-metric-value">{{ detection_overview.alerts_by_severity.high }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Medium generated alerts</div>
+      <div class="sd-metric-value">{{ detection_overview.alerts_by_severity.medium }}</div>
+    </div>
+  </article>
+  <article class="sd-metric">
+    <div class="sd-metric-body">
+      <div class="sd-metric-label">Low generated alerts</div>
+      <div class="sd-metric-value">{{ detection_overview.alerts_by_severity.low }}</div>
+    </div>
+  </article>
+</section>
+
+<section class="sd-panel mb-4">
+  <header class="sd-panel-header">
+    <h3>Detection rules</h3>
+    {% if can_manage_detection_rules %}
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'core:detection_rules' %}">Manage rules</a>
+    {% endif %}
+  </header>
+  <p class="text-secondary mb-2">
+    {{ detection_overview.enabled_rules }} of {{ detection_overview.total_rules }} rules enabled.
+    Alerts are generated from recorded SentinelDesk application events, not network-wide monitoring.
+  </p>
+  {% if detection_overview.most_triggered_rules %}
+    <div class="sd-activity-list">
+      {% for rule in detection_overview.most_triggered_rules %}
+        <div class="sd-activity-item">
+          <strong>{{ rule.name }}</strong>
+          <span class="text-secondary">{{ rule.identifier }} · {{ rule.alert_count }} generated alert{{ rule.alert_count|pluralize }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No detection rules have triggered yet.</div>
+  {% endif %}
 </section>
 
 <section class="sd-dashboard-grid" aria-label="Incident charts">

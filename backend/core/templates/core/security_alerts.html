@@ -7,7 +7,7 @@
 <section class="sd-dashboard-intro">
   <div>
     <h2>Security alerts</h2>
-    <p>Alerts are generated from recorded SentinelDesk authentication events.</p>
+    <p>Alerts are generated from recorded SentinelDesk application activity.</p>
   </div>
 </section>
 <section class="sd-panel">
@@ -18,7 +18,20 @@
         <tbody>
           {% for alert in alerts %}
             <tr>
-              <td><strong>{{ alert.title }}</strong><br><span class="text-secondary">{{ alert.description }}</span><br><span class="text-secondary">{{ alert.created_at|date:"M j, Y H:i" }}</span></td>
+              <td>
+                <strong>{{ alert.title }}</strong>
+                {% if alert.auto_generated %}
+                  <br><span class="sd-pill">Automatically detected</span>
+                {% endif %}
+                <br><span class="text-secondary">{{ alert.description }}</span>
+                {% if alert.detection_rule %}
+                  <br><span class="text-secondary">Rule: {{ alert.detection_rule.identifier }} — {{ alert.detection_rule.name }}</span>
+                {% endif %}
+                {% if alert.related_incident %}
+                  <br><a href="{% url 'core:monitored_incident_detail' alert.related_incident_id %}">Related incident #{{ alert.related_incident_id }}</a>
+                {% endif %}
+                <br><span class="text-secondary">{{ alert.created_at|date:"M j, Y H:i" }}</span>
+              </td>
               <td>{{ alert.get_alert_type_display }}</td>
               <td><span class="sd-pill severity-{{ alert.severity }}">{{ alert.get_severity_display }}</span></td>
               <td>{% if alert.source_ip %}{{ alert.source_ip }}{% else %}Not recorded{% endif %}</td>

@@ -3,10 +3,10 @@
 {% block title %}{{ incident.title }} | SentinelDesk{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-3">
+<div class="d-flex justify-content-between align-items-start mb-3 sd-incident-detail-header">
   <div>
     <a href="{% url 'incidents:list' %}" class="text-decoration-none">&larr; My incidents</a>
-    <h1 class="h2 mt-2">{{ incident.title }}</h1>
+    <h1 class="h2 mt-2 sd-incident-title">{{ incident.title }}</h1>
   </div>
   <span class="badge text-bg-secondary">{{ incident.get_status_display }}</span>
 </div>
@@ -16,7 +16,7 @@
       <dt class="col-sm-3">Category</dt><dd class="col-sm-9">{{ incident.get_category_display }}</dd>
       <dt class="col-sm-3">Severity</dt><dd class="col-sm-9">{{ incident.get_severity_display }}</dd>
       <dt class="col-sm-3">Submitted</dt><dd class="col-sm-9">{{ incident.created_at|date:"M j, Y H:i" }}</dd>
-      <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ incident.description|linebreaksbr }}</dd>
+      <dt class="col-sm-3">Description</dt><dd class="col-sm-9 sd-incident-description">{{ incident.description|linebreaksbr }}</dd>
       {% if incident.evidence_reference %}
         <dt class="col-sm-3">Evidence reference</dt><dd class="col-sm-9">{{ incident.evidence_reference|urlize }}</dd>
       {% endif %}

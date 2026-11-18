@@ -7,7 +7,7 @@
 <section class="sd-dashboard-intro">
   <div>
     <a href="{% url 'core:incident_monitoring' %}">&larr; Incident monitoring</a>
-    <h2 class="mt-2">{{ incident.title }}</h2>
+    <h2 class="mt-2 sd-incident-title">{{ incident.title }}</h2>
     <p>Reported {{ incident.created_at|date:"M j, Y H:i" }}</p>
   </div>
   <span class="sd-pill severity-{{ incident.severity }}">{{ incident.get_severity_display }}</span>
@@ -17,6 +17,8 @@
   <article class="sd-detail-card">
     <h2>Incident information</h2>
     <dl class="row mb-0">
+      <dt class="col-sm-4">Incident ID</dt><dd class="col-sm-8">{{ incident.pk }}</dd>
+      <dt class="col-sm-4">Public ID</dt><dd class="col-sm-8"><code>{{ incident.public_id }}</code></dd>
       <dt class="col-sm-4">Category</dt><dd class="col-sm-8">{{ incident.get_category_display }}</dd>
       <dt class="col-sm-4">Severity</dt><dd class="col-sm-8">{{ incident.get_severity_display }}</dd>
       <dt class="col-sm-4">Status</dt><dd class="col-sm-8">{{ incident.get_status_display }}</dd>
@@ -34,7 +36,7 @@
   </article>
   <article class="sd-detail-card">
     <h2>Description</h2>
-    <div class="sd-detail-value">{{ incident.description|linebreaksbr }}</div>
+    <div class="sd-detail-value sd-incident-description">{{ incident.description|linebreaksbr }}</div>
   </article>
   <article class="sd-detail-card">
     <h2>Evidence reference</h2>
@@ -113,6 +115,230 @@
     </div>
   {% else %}
     <div class="sd-empty-state">No investigation notes have been added.</div>
+  {% endif %}
+</section>
+
+<section class="sd-panel mt-3">
+  <header class="sd-panel-header"><h3>Indicators of compromise</h3></header>
+  {% if can_investigate %}
+    <form method="post" class="p-3 border-bottom border-secondary-subtle">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="ioc">
+      <div class="row g-3">
+        {% for field in ioc_form %}
+          <div class="{% if field.name == 'description' or field.name == 'notes' %}col-12{% else %}col-md-6{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      {% for error in ioc_form.non_field_errors %}<div class="alert alert-danger mt-3">{{ error }}</div>{% endfor %}
+      <button class="btn btn-primary mt-3" type="submit">Add indicator</button>
+    </form>
+  {% endif %}
+  {% if indicator_rows %}
+    <div class="sd-activity-list">
+      {% for row in indicator_rows %}
+        <article class="sd-activity-item">
+          <div class="d-flex justify-content-between gap-2 flex-wrap">
+            <strong>{{ row.indicator.get_indicator_type_display }} · <code>{{ row.indicator.value }}</code></strong>
+            <span class="sd-pill">{{ row.indicator.get_match_status_display }}</span>
+          </div>
+          <div class="text-secondary">
+            Source: {{ row.indicator.source }} · Confidence: {{ row.indicator.confidence }}%
+            · Risk: {{ row.indicator.get_risk_display }} · Added by {{ row.indicator.added_by.username }}
+          </div>
+          {% if row.indicator.description %}<p class="mb-1 mt-2">{{ row.indicator.description }}</p>{% endif %}
+          <p class="mb-1">{{ row.match_result.explanation }}</p>
+          {% if row.match_result.matches %}
+            <ul class="mb-2">
+              {% for match in row.match_result.matches %}
+                <li>
+                  Exact local match · {{ match.source }} · {{ match.classification }}
+                  · Confidence {{ match.confidence }}% · Updated {{ match.last_updated|date:"M j, Y H:i" }}
+                  {% if match.notes %}<br>{{ match.notes }}{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+          {% if can_investigate %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="ioc_check">
+              <input type="hidden" name="ioc_id" value="{{ row.indicator.pk }}">
+              <button class="btn btn-outline-secondary btn-sm" type="submit">Check local intelligence again</button>
+            </form>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="sd-empty-state">No indicators have been added to this investigation.</div>
+  {% endif %}
+</section>
+
+<section class="sd-dashboard-grid mt-3" aria-label="Investigation timeline and related alerts">
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Investigation timeline</h3></header>
+    {% if timeline %}
+      <div class="sd-activity-list">
+        {% for entry in timeline %}
+          <div class="sd-activity-item">
+            <div class="sd-activity-title">{{ entry.get_action_display }}</div>
+            <div>{{ entry.description }}</div>
+            <div class="text-secondary">
+              {% if entry.actor %}{{ entry.actor.username }} · {% else %}System · {% endif %}
+              <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"M j, Y H:i" }}</time>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No investigation events have been recorded.</div>
+    {% endif %}
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Related security alerts</h3></header>
+    {% if related_alerts %}
+      <div class="sd-activity-list">
+        {% for alert in related_alerts %}
+          <div class="sd-activity-item">
+            <div class="sd-activity-title">{{ alert.title }}</div>
+            <div>
+              <span class="sd-pill severity-{{ alert.severity }}">{{ alert.get_severity_display }}</span>
+              <span class="sd-pill">{{ alert.get_status_display }}</span>
+              {% if alert.auto_generated %}<span class="text-secondary">Automatically generated</span>{% endif %}
+            </div>
+            <div class="text-secondary">
+              {{ alert.get_alert_type_display }}
+              {% if alert.detection_rule %} · Rule: {{ alert.detection_rule.name }}{% endif %}
+              · {{ alert.created_at|date:"M j, Y H:i" }}
+            </div>
+            <p class="mb-0 mt-2">{{ alert.description }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No security alerts are associated with this incident.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="sd-dashboard-grid mt-3" aria-label="Investigation evidence and findings">
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Evidence records</h3></header>
+    {% if evidence_items %}
+      <div class="sd-activity-list">
+        {% for evidence in evidence_items %}
+          <div class="sd-activity-item">
+            <div class="sd-activity-title">
+              <a href="{% url 'core:evidence_download' evidence.pk %}">{{ evidence.original_filename }}</a>
+            </div>
+            <div>{{ evidence.description }}</div>
+            <div class="text-secondary">
+              {{ evidence.content_type }} · {{ evidence.file_size }} bytes ·
+              {{ evidence.get_classification_display }} ·
+              {{ evidence.uploaded_by.username }} ·
+              {{ evidence.uploaded_at|date:"M j, Y H:i" }}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No evidence has been uploaded.</div>
+    {% endif %}
+    {% if can_investigate %}
+      <form method="post" enctype="multipart/form-data" class="p-3 border-top border-secondary-subtle">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="evidence">
+        {% for field in evidence_form %}
+          <div class="sd-registration-field">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+        {% for error in evidence_form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+        <button class="btn btn-primary" type="submit">Upload evidence securely</button>
+      </form>
+    {% endif %}
+  </article>
+  <article class="sd-panel">
+    <header class="sd-panel-header"><h3>Related incident suggestions</h3></header>
+    {% if related_suggestions %}
+      <div class="sd-activity-list">
+        {% for suggestion in related_suggestions %}
+          <div class="sd-activity-item">
+            <div class="sd-activity-title">
+              <a href="{% url 'core:monitored_incident_detail' suggestion.incident_id %}">
+                Incident #{{ suggestion.incident_id }} · {{ suggestion.title }}
+              </a>
+            </div>
+            <div class="text-secondary">
+              {{ suggestion.category_display }} · {{ suggestion.severity }} · {{ suggestion.status }}
+            </div>
+            <ul class="mb-1">
+              {% for reason in suggestion.reasons %}<li>{{ reason }}</li>{% endfor %}
+            </ul>
+            {% if suggestion.shared_indicators %}
+              <div class="text-secondary">
+                {% for indicator in suggestion.shared_indicators %}
+                  {{ indicator.indicator_type }}: <code>{{ indicator.value }}</code>{% if not forloop.last %} · {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+            <small class="text-secondary">{{ suggestion.relationship }}</small>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sd-empty-state">No related incidents were suggested from current shared information.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="sd-panel mt-3">
+  <header class="sd-panel-header"><h3>Investigation findings</h3></header>
+  {% if finding %}
+    <div class="p-3">
+      {% if finding.is_finalized %}
+        <p><span class="sd-pill">Finalized · {{ finding.get_final_disposition_display }}</span></p>
+        <p class="text-secondary">
+          Finalized by {{ finding.finalized_by.username }} on
+          {{ finding.finalized_at|date:"M j, Y H:i" }}.
+        </p>
+      {% endif %}
+      {% for label, value in finding_fields %}
+        {% if value %}
+          <h4>{{ label }}</h4>
+          <p>{{ value|linebreaksbr }}</p>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% if can_investigate and not finding.is_finalized %}
+    <form method="post" class="p-3">
+      {% csrf_token %}
+      {% for field in finding_form %}
+        {% if field.name != "finalize" %}
+          <div class="sd-registration-field">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+      {% for error in finding_form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-primary" type="submit" name="action" value="findings">Save findings draft</button>
+        {% if incident.status == "resolved" or incident.status == "closed" %}
+          <button class="btn btn-primary" type="submit" name="action" value="finalize_findings">Finalize findings</button>
+        {% else %}
+          <span class="text-secondary align-self-center">Resolve or close the incident before finalizing.</span>
+        {% endif %}
+      </div>
+    </form>
   {% endif %}
 </section>
 {% endblock %}

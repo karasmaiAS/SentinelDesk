@@ -1,4 +1,5 @@
 import ipaddress
+import mimetypes
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -52,7 +53,17 @@ class SentinelDeskApi:
     def authenticated(self):
         return self._token is not None
 
-    def _request(self, method, path, *, params=None, payload=None):
+    def _request(
+        self,
+        method,
+        path,
+        *,
+        params=None,
+        payload=None,
+        files=None,
+        data=None,
+        raw=False,
+    ):
         headers = {}
         if self._token:
             headers["Authorization"] = f"Token {self._token}"
@@ -61,7 +72,9 @@ class SentinelDeskApi:
                 method,
                 f"{self.base_url}/{path.lstrip('/')}",
                 params=params,
-                json=payload,
+                json=payload if files is None else None,
+                files=files,
+                data=data,
                 headers=headers,
                 timeout=self.timeout,
             )
@@ -71,8 +84,14 @@ class SentinelDeskApi:
                 "Check that the Django server is running."
             ) from error
 
+        if response.status_code == 401:
+            self._token = None
+
         if response.status_code == 204:
             return None
+
+        if response.ok and raw:
+            return response.content
 
         try:
             data = response.json()
@@ -135,6 +154,9 @@ class SentinelDeskApi:
     def get_statistics(self):
         return self._request("GET", "dashboard/statistics/")["data"]
 
+    def get_analytics(self, **filters):
+        return self._request("GET", "analytics/", params=filters)["data"]
+
     def get_incidents(self, **filters):
         response = self._request("GET", "incidents/", params=filters)
         return response["data"]
@@ -177,6 +199,115 @@ class SentinelDeskApi:
             payload={"content": content},
         )["data"]
 
+    def get_indicators(self, incident_id, **filters):
+        response = self._request(
+            "GET",
+            f"incidents/{incident_id}/iocs/",
+            params=filters,
+        )
+        return response["data"]
+
+    def add_indicator(self, incident_id, values):
+        return self._request(
+            "POST",
+            f"incidents/{incident_id}/iocs/",
+            payload=values,
+        )["data"]
+
+    def update_indicator(self, indicator_id, changes):
+        return self._request(
+            "PATCH",
+            f"iocs/{indicator_id}/",
+            payload=changes,
+        )["data"]
+
+    def get_indicator_matches(self, indicator_id):
+        return self._request(
+            "GET",
+            f"iocs/{indicator_id}/matches/",
+        )["data"]
+
+    def check_indicator(self, indicator_id):
+        return self._request(
+            "POST",
+            f"iocs/{indicator_id}/matches/",
+        )["data"]
+
+    def get_related_incidents(self, incident_id):
+        return self._request(
+            "GET",
+            f"incidents/{incident_id}/related/",
+        )["data"]["suggestions"]
+
+    def get_findings(self, incident_id):
+        return self._request(
+            "GET",
+            f"incidents/{incident_id}/findings/",
+        )["data"]
+
+    def save_findings(self, incident_id, changes):
+        return self._request(
+            "PATCH",
+            f"incidents/{incident_id}/findings/",
+            payload=changes,
+        )["data"]
+
+    def get_evidence(self, incident_id, **filters):
+        return self._request(
+            "GET",
+            f"incidents/{incident_id}/evidence/",
+            params=filters,
+        )["data"]
+
+    def upload_evidence(
+        self,
+        incident_id,
+        file_path,
+        description,
+        classification="internal",
+    ):
+        with open(file_path, "rb") as evidence_file:
+            content_type = mimetypes.guess_type(file_path)[0]
+            files = {
+                "file": (
+                    file_path.split("/")[-1].split("\\")[-1],
+                    evidence_file,
+                    content_type or "application/octet-stream",
+                )
+            }
+            return self._request(
+                "POST",
+                f"incidents/{incident_id}/evidence/",
+                files=files,
+                data={
+                    "description": description,
+                    "classification": classification,
+                },
+            )["data"]
+
+    def download_evidence(self, evidence_id):
+        return self._request(
+            "GET",
+            f"evidence/{evidence_id}/download/",
+            raw=True,
+        )
+
+    def get_incident_timeline(self, incident_id):
+        response = self._request(
+            "GET",
+            "activity-logs/",
+            params={"incident": incident_id, "page_size": 100},
+        )
+        return response["data"]
+
+    def get_incident_alerts(self, incident_id):
+        response = self._request(
+            "GET",
+            "alerts/",
+            params={"related_incident": incident_id, "page_size": 100},
+        )
+        return response["data"]
+
     def get_analysts(self, **filters):
         response = self._request("GET", "analysts/", params=filters)
         return response["data"]
@@ -184,6 +315,19 @@ class SentinelDeskApi:
     def get_alerts(self, **filters):
         response = self._request("GET", "alerts/", params=filters)
         return response["data"]
+
+    def get_detection_overview(self):
+        return self._request("GET", "detection/overview/")["data"]
+
+    def get_detection_rules(self):
+        return self._request("GET", "detection/rules/")["data"]["rules"]
+
+    def update_detection_rule(self, identifier, changes):
+        return self._request(
+            "PATCH",
+            f"detection/rules/{identifier}/",
+            payload=changes,
+        )["data"]
 
     def update_alert(self, alert_id, status):
         return self._request(

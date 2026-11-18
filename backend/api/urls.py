@@ -11,10 +11,21 @@ from .resource_views import (
     ActivityLogListView,
     AnalystListView,
     DashboardStatisticsView,
+    DetectionOverviewView,
+    DetectionRuleDetailView,
+    DetectionRuleListView,
+    EvidenceDownloadView,
+    IncidentEvidenceListView,
+    IndicatorDetailView,
+    IndicatorMatchView,
+    IncidentIndicatorListView,
     IncidentAssignmentView,
+    InvestigationFindingView,
     IncidentNotesView,
+    RelatedIncidentsView,
     SecurityAlertDetailView,
     SecurityAlertListView,
+    SecurityAnalyticsView,
 )
 from .views import ApiLoginView, ApiLogoutView, ApiMeView
 
@@ -51,6 +62,37 @@ urlpatterns = [
         IncidentNotesView.as_view(),
         name="incident-notes",
     ),
+    path(
+        "incidents/<int:incident_id>/iocs/",
+        IncidentIndicatorListView.as_view(),
+        name="incident-ioc-list",
+    ),
+    path(
+        "incidents/<int:incident_id>/related/",
+        RelatedIncidentsView.as_view(),
+        name="incident-related",
+    ),
+    path(
+        "incidents/<int:incident_id>/findings/",
+        InvestigationFindingView.as_view(),
+        name="incident-findings",
+    ),
+    path(
+        "incidents/<int:incident_id>/evidence/",
+        IncidentEvidenceListView.as_view(),
+        name="incident-evidence",
+    ),
+    path(
+        "evidence/<int:evidence_id>/download/",
+        EvidenceDownloadView.as_view(),
+        name="evidence-download",
+    ),
+    path("iocs/<int:ioc_id>/", IndicatorDetailView.as_view(), name="ioc-detail"),
+    path(
+        "iocs/<int:ioc_id>/matches/",
+        IndicatorMatchView.as_view(),
+        name="ioc-matches",
+    ),
     path("analysts/", AnalystListView.as_view(), name="analysts"),
     path("alerts/", SecurityAlertListView.as_view(), name="alert-list"),
     path(
@@ -68,5 +110,21 @@ urlpatterns = [
         "dashboard/statistics/",
         DashboardStatisticsView.as_view(),
         name="dashboard-statistics",
+    ),
+    path("analytics/", SecurityAnalyticsView.as_view(), name="analytics"),
+    path(
+        "detection/overview/",
+        DetectionOverviewView.as_view(),
+        name="detection-overview",
+    ),
+    path(
+        "detection/rules/",
+        DetectionRuleListView.as_view(),
+        name="detection-rules",
+    ),
+    path(
+        "detection/rules/<slug:identifier>/",
+        DetectionRuleDetailView.as_view(),
+        name="detection-rule-detail",
     ),
 ]

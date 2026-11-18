@@ -1,12 +1,24 @@
 from datetime import timedelta
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.staticfiles import finders
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from incidents.models import ActivityLog, Incident, InvestigationNote, SecurityAlert
+from incidents.models import (
+    ActivityLog,
+    DetectionRule,
+    IndicatorOfCompromise,
+    Incident,
+    InvestigationEvidence,
+    InvestigationFinding,
+    InvestigationNote,
+    SecurityAlert,
+)
 from incidents.services import assign_incident
 
 
@@ -142,6 +154,98 @@ class SocDashboardTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_dashboard_shows_detection_statistics_and_top_rule(self):
+        rule = DetectionRule.objects.get(identifier="multiple_failed_logins")
+        SecurityAlert.objects.create(
+            title="Multiple failed login attempts",
+            description="Threshold reached.",
+            alert_type=SecurityAlert.AlertType.REPEATED_FAILED_LOGINS,
+            severity=SecurityAlert.Severity.HIGH,
+            detection_rule=rule,
+            auto_generated=True,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("core:soc_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["detection_overview"]["total_generated_alerts"],
+            1,
+        )
+        self.assertEqual(
+            response.context["detection_overview"]["most_triggered_rules"][0][
+                "identifier"
+            ],
+            rule.identifier,
+        )
+        self.assertContains(response, "Detection rules")
+
+    def test_only_administrators_can_manage_detection_rules(self):
+        url = reverse("core:detection_rules")
+        analyst = get_user_model().objects.create_user(
+            username="detection-rules-analyst",
+            password="StrongPassword!327",
+            is_staff=True,
+        )
+        self.client.force_login(analyst)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.client.force_login(self.admin)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "multiple_failed_logins")
+
+    def test_administrator_can_update_detection_rule_and_activity_is_logged(self):
+        rule = DetectionRule.objects.get(identifier="multiple_failed_logins")
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse("core:detection_rules"),
+            {
+                "rule_id": rule.pk,
+                "enabled": "on",
+                "threshold": "7",
+                "window_seconds": "600",
+                "severity": SecurityAlert.Severity.CRITICAL,
+                "suppression_seconds": "900",
+            },
+        )
+
+        self.assertRedirects(response, reverse("core:detection_rules"))
+        rule.refresh_from_db()
+        self.assertEqual(rule.threshold, 7)
+        self.assertEqual(rule.window_seconds, 600)
+        self.assertEqual(rule.severity, SecurityAlert.Severity.CRITICAL)
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                actor=self.admin,
+                action=ActivityLog.Action.DETECTION_RULE_UPDATED,
+            ).exists()
+        )
+
+    def test_detection_rule_form_rejects_out_of_range_threshold(self):
+        rule = DetectionRule.objects.get(identifier="multiple_failed_logins")
+        original_threshold = rule.threshold
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse("core:detection_rules"),
+            {
+                "rule_id": rule.pk,
+                "enabled": "on",
+                "threshold": "10001",
+                "window_seconds": "300",
+                "severity": SecurityAlert.Severity.HIGH,
+                "suppression_seconds": "300",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rule.refresh_from_db()
+        self.assertEqual(rule.threshold, original_threshold)
+        self.assertContains(response, "Ensure this value is less than or equal to 10000.")
+
     def test_staff_navigation_has_soc_dashboard_and_admin_fallback(self):
         self.client.force_login(self.admin)
 
@@ -233,6 +337,155 @@ class IncidentMonitoringTests(TestCase):
         self.assertContains(response, self.phishing_incident.title)
         self.assertContains(response, self.reporter.email)
         self.assertContains(response, "Unexpected email link.")
+
+    def test_investigation_workspace_shows_timeline_and_related_alerts(self):
+        ActivityLog.objects.create(
+            actor=self.analyst,
+            incident=self.phishing_incident,
+            action=ActivityLog.Action.ASSIGNMENT_CHANGED,
+            description="Assignment changed from unassigned to analyst.",
+        )
+        alert = SecurityAlert.objects.create(
+            title="Related phishing alert",
+            description="An alert associated with this incident.",
+            alert_type=SecurityAlert.AlertType.OTHER,
+            severity=SecurityAlert.Severity.HIGH,
+            related_incident=self.phishing_incident,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse(
+                "core:monitored_incident_detail",
+                args=[self.phishing_incident.pk],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Investigation timeline")
+        self.assertContains(response, "Assignment changed from unassigned to analyst.")
+        self.assertContains(response, "Related security alerts")
+        self.assertContains(response, alert.title)
+        self.assertEqual(response.context["related_alerts"][0], alert)
+
+    def test_investigation_workspace_can_add_validated_indicator(self):
+        self.client.force_login(self.admin)
+        detail_url = reverse(
+            "core:monitored_incident_detail",
+            args=[self.phishing_incident.pk],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "action": "ioc",
+                "indicator_type": IndicatorOfCompromise.Type.IPV4,
+                "value": "192.0.2.10",
+                "source": "Analyst observation",
+                "confidence": "75",
+                "risk": IndicatorOfCompromise.Risk.MEDIUM,
+                "status": IndicatorOfCompromise.Status.ACTIVE,
+            },
+        )
+
+        self.assertRedirects(response, detail_url)
+        indicator = IndicatorOfCompromise.objects.get(incident=self.phishing_incident)
+        self.assertEqual(indicator.normalized_value, "192.0.2.10")
+        self.assertEqual(indicator.added_by, self.admin)
+        self.assertEqual(
+            indicator.match_status,
+            IndicatorOfCompromise.MatchStatus.INCONCLUSIVE,
+        )
+
+    def test_investigation_workspace_uploads_and_authorizes_private_evidence(self):
+        storage = InvestigationEvidence._meta.get_field("file").storage
+        detail_url = reverse(
+            "core:monitored_incident_detail",
+            args=[self.phishing_incident.pk],
+        )
+        with TemporaryDirectory() as evidence_dir:
+            with patch.object(storage, "location", evidence_dir):
+                self.client.force_login(self.admin)
+                response = self.client.post(
+                    detail_url,
+                    {
+                        "action": "evidence",
+                        "file": SimpleUploadedFile(
+                            "..\\incident.txt",
+                            b"Captured evidence",
+                            content_type="text/plain",
+                        ),
+                        "description": "Original log capture",
+                        "classification": "restricted",
+                    },
+                )
+                self.assertRedirects(response, detail_url)
+                evidence = InvestigationEvidence.objects.get(
+                    incident=self.phishing_incident
+                )
+                self.assertEqual(evidence.original_filename, "incident.txt")
+                self.assertNotIn("incident.txt", evidence.file.name)
+
+                download = self.client.get(
+                    reverse("core:evidence_download", args=[evidence.pk])
+                )
+                self.assertEqual(download.status_code, 200)
+                content = b"".join(download.streaming_content)
+                download.close()
+                self.assertEqual(content, b"Captured evidence")
+                self.assertEqual(download["X-Content-Type-Options"], "nosniff")
+
+                self.client.force_login(self.reporter)
+                self.assertEqual(
+                    self.client.get(
+                        reverse("core:evidence_download", args=[evidence.pk])
+                    ).status_code,
+                    403,
+                )
+
+    def test_findings_web_form_enforces_resolution_before_finalization(self):
+        self.client.force_login(self.admin)
+        detail_url = reverse(
+            "core:monitored_incident_detail",
+            args=[self.phishing_incident.pk],
+        )
+        findings = {
+            "summary": "Credential phishing confirmed.",
+            "findings": "The captured URL was a credential collection page.",
+            "evidence_reviewed": "Original message and URL logs.",
+            "actions_performed": "Blocked the URL.",
+            "recommended_remediation": "Reset affected credentials.",
+            "final_disposition": InvestigationFinding.Disposition.CONFIRMED,
+        }
+
+        draft = self.client.post(
+            detail_url,
+            {"action": "findings", **findings},
+        )
+        self.assertRedirects(draft, detail_url)
+        finding = InvestigationFinding.objects.get(incident=self.phishing_incident)
+        self.assertFalse(finding.is_finalized)
+
+        premature = self.client.post(
+            detail_url,
+            {"action": "finalize_findings", **findings},
+        )
+        self.assertEqual(premature.status_code, 200)
+        finding.refresh_from_db()
+        self.assertFalse(finding.is_finalized)
+        self.assertContains(premature, "Resolve or close the incident")
+
+        self.phishing_incident.status = Incident.Status.RESOLVED
+        self.phishing_incident.resolution_summary = "URL blocked and credentials reset."
+        self.phishing_incident.save(update_fields=("status", "resolution_summary"))
+        finalized = self.client.post(
+            detail_url,
+            {"action": "finalize_findings", **findings},
+        )
+        self.assertRedirects(finalized, detail_url)
+        finding.refresh_from_db()
+        self.assertTrue(finding.is_finalized)
+        self.assertEqual(finding.finalized_by, self.admin)
 
     def test_administrator_can_assign_incident_from_detail_page(self):
         self.client.force_login(self.admin)

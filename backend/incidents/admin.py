@@ -1,6 +1,17 @@
 from django.contrib import admin
 
-from .models import ActivityLog, Incident, InvestigationNote, LoginAttempt, SecurityAlert
+from accounts.roles import is_administrator, is_analyst
+from incidents.intelligence import check_indicator
+
+from .models import (
+    ActivityLog,
+    Incident,
+    IndicatorOfCompromise,
+    InvestigationNote,
+    LoginAttempt,
+    SecurityAlert,
+    ThreatIntelRecord,
+)
 from .services import assign_incident, log_activity, update_incident
 
 
@@ -75,6 +86,161 @@ class InvestigationNoteAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(IndicatorOfCompromise)
+class IndicatorOfCompromiseAdmin(admin.ModelAdmin):
+    list_display = (
+        "value",
+        "indicator_type",
+        "risk",
+        "confidence",
+        "match_status",
+        "incident",
+        "date_identified",
+    )
+    list_filter = ("indicator_type", "risk", "status", "match_status")
+    search_fields = ("value", "normalized_value", "description", "source")
+    readonly_fields = (
+        "normalized_value",
+        "added_by",
+        "match_status",
+        "last_checked_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request).select_related(
+            "incident",
+            "added_by",
+        )
+        if is_administrator(request.user):
+            return queryset
+        if is_analyst(request.user):
+            return queryset.filter(incident__assigned_analyst=request.user)
+        return queryset.none()
+
+    def has_add_permission(self, request):
+        return is_administrator(request.user) or is_analyst(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        if is_administrator(request.user):
+            return True
+        return bool(
+            is_analyst(request.user)
+            and (obj is None or obj.incident.assigned_analyst_id == request.user.pk)
+        )
+
+    def has_change_permission(self, request, obj=None):
+        return self.has_view_permission(request, obj)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "incident" and is_analyst(request.user):
+            kwargs["queryset"] = Incident.objects.filter(
+                assigned_analyst=request.user
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        previous = None
+        if change:
+            previous = IndicatorOfCompromise.objects.get(pk=obj.pk)
+        if not change:
+            obj.added_by = request.user
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+        if not change:
+            log_activity(
+                action=ActivityLog.Action.IOC_DISCOVERED,
+                description=f"{obj.indicator_type} indicator discovered: {obj.value}.",
+                actor=request.user,
+                incident=obj.incident,
+                request=request,
+            )
+            check_indicator(obj, actor=request.user, request=request)
+        else:
+            modified = any(
+                getattr(previous, field) != getattr(obj, field)
+                for field in (
+                    "indicator_type",
+                    "value",
+                    "description",
+                    "source",
+                    "confidence",
+                    "risk",
+                    "date_identified",
+                    "notes",
+                    "status",
+                )
+            )
+            if modified:
+                log_activity(
+                    action=ActivityLog.Action.IOC_UPDATED,
+                    description=f"Indicator updated: {obj.value}.",
+                    actor=request.user,
+                    incident=obj.incident,
+                    request=request,
+                )
+            if (
+                previous.indicator_type != obj.indicator_type
+                or previous.value != obj.value
+            ):
+                obj.match_status = IndicatorOfCompromise.MatchStatus.UNCHECKED
+                obj.last_checked_at = None
+                obj.save(
+                    update_fields=("match_status", "last_checked_at", "updated_at")
+                )
+                check_indicator(obj, actor=request.user, request=request)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ThreatIntelRecord)
+class ThreatIntelRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "value",
+        "indicator_type",
+        "source",
+        "confidence",
+        "classification",
+        "last_updated",
+    )
+    list_filter = ("indicator_type", "source", "classification")
+    search_fields = ("value", "normalized_value", "source", "classification", "notes")
+    readonly_fields = ("normalized_value", "created_by", "last_updated")
+
+    def has_module_permission(self, request):
+        return is_administrator(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return is_administrator(request.user)
+
+    def has_add_permission(self, request):
+        return is_administrator(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return is_administrator(request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+        log_activity(
+            action=ActivityLog.Action.THREAT_INTEL_UPDATED,
+            description=(
+                f"Local threat-intelligence record "
+                f"{obj.indicator_type} {obj.value} was "
+                f"{'updated' if change else 'created'}."
+            ),
+            actor=request.user,
+            request=request,
+        )
 
     def has_delete_permission(self, request, obj=None):
         return False

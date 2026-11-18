@@ -1,27 +1,43 @@
 from django.contrib.auth import get_user_model
+from django.http import FileResponse
 from django.utils.dateparse import parse_date
-from django.db.models import Count
+from django.db import transaction
+from django.db.models import Count, Q
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.roles import can_investigate, is_administrator, is_analyst
+from incidents.analytics import get_security_analytics
 from incidents.models import (
     ActivityLog,
+    DetectionRule,
+    IndicatorOfCompromise,
     Incident,
+    InvestigationEvidence,
+    InvestigationFinding,
     InvestigationNote,
     SecurityAlert,
 )
+from incidents.intelligence import check_indicator, get_indicator_matches
+from incidents.related import suggest_related_incidents
 
 from .pagination import ApiPageNumberPagination, ApiResponseMixin
+from incidents.detection.queries import get_detection_overview
+from incidents.services import log_activity
 from .serializers import (
     ActivityLogSerializer,
+    AnalyticsQuerySerializer,
     AnalystSerializer,
     AssignmentSerializer,
+    IndicatorOfCompromiseSerializer,
+    InvestigationEvidenceSerializer,
+    InvestigationFindingSerializer,
     InvestigationNoteSerializer,
     SecurityAlertSerializer,
     SecurityAlertStatusSerializer,
+    DetectionRuleSerializer,
 )
 
 
@@ -120,6 +136,248 @@ class IncidentNotesView(generics.ListCreateAPIView):
         )
 
 
+class IncidentIndicatorListView(APIView):
+    def get_incident(self, request, incident_id):
+        incident = _accessible_incident(request, incident_id)
+        if not can_investigate(request.user, incident):
+            raise PermissionDenied(
+                "Only the assigned analyst or an administrator can access indicators."
+            )
+        return incident
+
+    def get(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        indicators = IndicatorOfCompromise.objects.filter(incident=incident)
+        indicator_type = request.query_params.get("indicator_type")
+        if indicator_type:
+            if indicator_type not in IndicatorOfCompromise.Type.values:
+                raise ValidationError(
+                    {"indicator_type": "Select a valid indicator type."}
+                )
+            indicators = indicators.filter(indicator_type=indicator_type)
+        indicator_status = request.query_params.get("status")
+        if indicator_status:
+            if indicator_status not in IndicatorOfCompromise.Status.values:
+                raise ValidationError({"status": "Select a valid indicator status."})
+            indicators = indicators.filter(status=indicator_status)
+        search = request.query_params.get("search", "").strip()
+        if search:
+            indicators = indicators.filter(
+                Q(value__icontains=search)
+                | Q(description__icontains=search)
+                | Q(source__icontains=search)
+            )
+        paginator = ApiPageNumberPagination()
+        page = paginator.paginate_queryset(indicators, request, view=self)
+        data = IndicatorOfCompromiseSerializer(
+            page,
+            many=True,
+            context={"request": request},
+        ).data
+        return paginator.get_paginated_response(data)
+
+    def post(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        serializer = IndicatorOfCompromiseSerializer(
+            data=request.data,
+            context={"request": request, "incident": incident},
+        )
+        serializer.is_valid(raise_exception=True)
+        indicator = serializer.save()
+        return Response(
+            {"data": IndicatorOfCompromiseSerializer(
+                indicator,
+                context={"request": request},
+            ).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _accessible_indicator(request, indicator_id):
+    try:
+        indicator = IndicatorOfCompromise.objects.select_related("incident").get(
+            pk=indicator_id
+        )
+    except IndicatorOfCompromise.DoesNotExist as error:
+        raise NotFound("Indicator not found.") from error
+    _accessible_incident(request, indicator.incident_id)
+    if not can_investigate(request.user, indicator.incident):
+        raise PermissionDenied(
+            "Only the assigned analyst or an administrator can access indicators."
+        )
+    return indicator
+
+
+class IndicatorDetailView(APIView):
+    def get(self, request, ioc_id):
+        indicator = _accessible_indicator(request, ioc_id)
+        return Response(
+            {
+                "data": IndicatorOfCompromiseSerializer(
+                    indicator,
+                    context={"request": request},
+                ).data
+            }
+        )
+
+    def patch(self, request, ioc_id):
+        indicator = _accessible_indicator(request, ioc_id)
+        serializer = IndicatorOfCompromiseSerializer(
+            indicator,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        indicator = serializer.save()
+        return Response(
+            {
+                "data": IndicatorOfCompromiseSerializer(
+                    indicator,
+                    context={"request": request},
+                ).data
+            }
+        )
+
+
+class IndicatorMatchView(APIView):
+    def get(self, request, ioc_id):
+        indicator = _accessible_indicator(request, ioc_id)
+        return Response({"data": get_indicator_matches(indicator)})
+
+    def post(self, request, ioc_id):
+        indicator = _accessible_indicator(request, ioc_id)
+        return Response(
+            {
+                "data": check_indicator(
+                    indicator,
+                    actor=request.user,
+                    request=request,
+                )
+            }
+        )
+
+
+class RelatedIncidentsView(APIView):
+    def get(self, request, incident_id):
+        incident = _accessible_incident(request, incident_id)
+        if not can_investigate(request.user, incident):
+            raise PermissionDenied(
+                "Related incidents are not available to this role."
+            )
+        return Response(
+            {
+                "data": {
+                    "suggestions": suggest_related_incidents(
+                        incident=incident,
+                        user=request.user,
+                    )
+                }
+            }
+        )
+
+
+class IncidentEvidenceListView(APIView):
+    def get_incident(self, request, incident_id):
+        incident = _accessible_incident(request, incident_id)
+        if not can_investigate(request.user, incident):
+            raise PermissionDenied(
+                "Only the assigned analyst or an administrator can access evidence."
+            )
+        return incident
+
+    def get(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        evidence = InvestigationEvidence.objects.filter(incident=incident)
+        paginator = ApiPageNumberPagination()
+        page = paginator.paginate_queryset(evidence, request, view=self)
+        data = InvestigationEvidenceSerializer(page, many=True).data
+        return paginator.get_paginated_response(data)
+
+    def post(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        serializer = InvestigationEvidenceSerializer(
+            data=request.data,
+            context={"request": request, "incident": incident},
+        )
+        serializer.is_valid(raise_exception=True)
+        evidence = serializer.save()
+        return Response(
+            {"data": InvestigationEvidenceSerializer(evidence).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class EvidenceDownloadView(APIView):
+    def get(self, request, evidence_id):
+        try:
+            evidence = InvestigationEvidence.objects.select_related(
+                "incident"
+            ).get(pk=evidence_id)
+        except InvestigationEvidence.DoesNotExist as error:
+            raise NotFound("Evidence not found.") from error
+        _accessible_incident(request, evidence.incident_id)
+        if not can_investigate(request.user, evidence.incident):
+            raise PermissionDenied(
+                "Only the assigned analyst or an administrator can download evidence."
+            )
+        response = FileResponse(
+            evidence.file.open("rb"),
+            as_attachment=True,
+            filename=evidence.original_filename,
+            content_type=evidence.content_type,
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class InvestigationFindingView(APIView):
+    def get_incident(self, request, incident_id):
+        incident = _accessible_incident(request, incident_id)
+        if not can_investigate(request.user, incident):
+            raise PermissionDenied(
+                "Investigation findings are not available to this role."
+            )
+        return incident
+
+    def get(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        try:
+            finding = incident.investigation_finding
+        except InvestigationFinding.DoesNotExist:
+            finding = None
+        return Response(
+            {
+                "data": (
+                    InvestigationFindingSerializer(finding).data
+                    if finding is not None
+                    else None
+                )
+            }
+        )
+
+    def patch(self, request, incident_id):
+        incident = self.get_incident(request, incident_id)
+        try:
+            finding = incident.investigation_finding
+        except InvestigationFinding.DoesNotExist:
+            finding = None
+        is_create = finding is None
+        serializer = InvestigationFindingSerializer(
+            finding,
+            data=request.data,
+            partial=finding is not None,
+            context={"request": request, "incident": incident},
+        )
+        serializer.is_valid(raise_exception=True)
+        finding = serializer.save()
+        return Response(
+            {"data": InvestigationFindingSerializer(finding).data},
+            status=status.HTTP_201_CREATED if is_create else status.HTTP_200_OK,
+        )
+
+
 class AlertQuerysetMixin:
     filter_fields = {
         "severity": SecurityAlert.Severity.values,
@@ -135,6 +393,28 @@ class AlertQuerysetMixin:
                 if value not in values:
                     raise ValidationError({field: "Select a valid filter value."})
                 queryset = queryset.filter(**{field: value})
+        rule_identifier = self.request.query_params.get("detection_rule")
+        if rule_identifier:
+            if not DetectionRule.objects.filter(
+                identifier=rule_identifier
+            ).exists():
+                raise ValidationError(
+                    {"detection_rule": "Select a valid detection rule."}
+                )
+            queryset = queryset.filter(
+                detection_rule__identifier=rule_identifier
+            )
+        related_incident_id = self.request.query_params.get("related_incident")
+        if related_incident_id:
+            if not related_incident_id.isdecimal():
+                raise ValidationError(
+                    {"related_incident": "Enter a valid incident ID."}
+                )
+            incident = _accessible_incident(
+                self.request,
+                int(related_incident_id),
+            )
+            queryset = queryset.filter(related_incident=incident)
         return queryset
 
 
@@ -142,7 +422,11 @@ class SecurityAlertListView(AlertQuerysetMixin, ApiResponseMixin, generics.ListA
     serializer_class = SecurityAlertSerializer
     search_fields = ("title", "description")
     ordering_fields = ("created_at", "updated_at", "severity", "status")
-    queryset = SecurityAlert.objects.select_related("related_user").all()
+    queryset = SecurityAlert.objects.select_related(
+        "related_user",
+        "related_incident",
+        "detection_rule",
+    ).all()
 
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
@@ -153,7 +437,13 @@ class SecurityAlertListView(AlertQuerysetMixin, ApiResponseMixin, generics.ListA
             self.request.user
         ):
             raise PermissionDenied("Security alerts are not available to this role.")
-        return super().get_queryset()
+        queryset = super().get_queryset()
+        if is_analyst(self.request.user):
+            queryset = queryset.filter(
+                Q(related_incident__isnull=True)
+                | Q(related_incident__assigned_analyst=self.request.user)
+            )
+        return queryset
 
 
 class SecurityAlertDetailView(APIView):
@@ -162,8 +452,18 @@ class SecurityAlertDetailView(APIView):
             self.request.user
         ):
             raise PermissionDenied("Security alerts are not available to this role.")
+        queryset = SecurityAlert.objects.select_related(
+            "related_user",
+            "related_incident",
+            "detection_rule",
+        )
+        if is_analyst(self.request.user):
+            queryset = queryset.filter(
+                Q(related_incident__isnull=True)
+                | Q(related_incident__assigned_analyst=self.request.user)
+            )
         try:
-            return SecurityAlert.objects.select_related("related_user").get(pk=alert_id)
+            return queryset.get(pk=alert_id)
         except SecurityAlert.DoesNotExist as error:
             raise NotFound("Security alert not found.") from error
 
@@ -270,7 +570,10 @@ class DashboardStatisticsView(APIView):
             active_users = get_user_model().objects.filter(is_active=True).count()
         elif is_analyst(request.user):
             incidents = Incident.objects.filter(assigned_analyst=request.user)
-            alerts = SecurityAlert.objects.all()
+            alerts = SecurityAlert.objects.filter(
+                Q(related_incident__isnull=True)
+                | Q(related_incident__assigned_analyst=request.user)
+            )
             active_users = None
         else:
             incidents = Incident.objects.filter(reporter=request.user)
@@ -299,6 +602,12 @@ class DashboardStatisticsView(APIView):
             "resolved_incidents": incidents.filter(
                 status=Incident.Status.RESOLVED
             ).count(),
+            "closed_incidents": incidents.filter(
+                status=Incident.Status.CLOSED
+            ).count(),
+            "active_incidents": incidents.exclude(
+                status__in=(Incident.Status.RESOLVED, Incident.Status.CLOSED)
+            ).count(),
             "critical_incidents": incidents.filter(
                 severity=Incident.Severity.CRITICAL
             ).count(),
@@ -326,3 +635,80 @@ class DashboardStatisticsView(APIView):
             },
         }
         return Response({"data": counts})
+
+
+def _require_security_staff(user):
+    if not is_administrator(user) and not is_analyst(user):
+        raise PermissionDenied("Detection information is not available to this role.")
+
+
+class SecurityAnalyticsView(APIView):
+    def get(self, request):
+        _require_security_staff(request.user)
+        serializer = AnalyticsQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        data = get_security_analytics(
+            user=request.user,
+            **serializer.validated_data,
+        )
+        return Response({"data": data})
+
+
+class DetectionRuleListView(APIView):
+    def get(self, request):
+        _require_security_staff(request.user)
+        rules = DetectionRule.objects.all()
+        return Response(
+            {"data": {"rules": DetectionRuleSerializer(rules, many=True).data}}
+        )
+
+
+class DetectionRuleDetailView(APIView):
+    def patch(self, request, identifier):
+        if not is_administrator(request.user):
+            raise PermissionDenied("Only administrators can change detection rules.")
+        try:
+            rule = DetectionRule.objects.get(identifier=identifier)
+        except DetectionRule.DoesNotExist as error:
+            raise NotFound("Detection rule not found.") from error
+        serializer = DetectionRuleSerializer(
+            rule,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            rule = serializer.save()
+            log_activity(
+                action=ActivityLog.Action.DETECTION_RULE_UPDATED,
+                description=f"Detection rule {rule.identifier} configuration updated.",
+                actor=request.user,
+                request=request,
+            )
+        return Response({"data": DetectionRuleSerializer(rule).data})
+
+
+class DetectionOverviewView(APIView):
+    def get(self, request):
+        _require_security_staff(request.user)
+        if is_analyst(request.user):
+            generated_alerts = SecurityAlert.objects.filter(
+                auto_generated=True,
+            ).filter(
+                Q(related_incident__isnull=True)
+                | Q(related_incident__assigned_analyst=request.user)
+            )
+        else:
+            generated_alerts = SecurityAlert.objects.filter(auto_generated=True)
+        overview = get_detection_overview(request.user)
+        overview["recent_generated_alerts"] = SecurityAlertSerializer(
+            generated_alerts.select_related(
+                "detection_rule",
+                "related_user",
+                "related_incident",
+            )[:5],
+            many=True,
+        ).data
+        return Response(
+            {"data": overview}
+        )

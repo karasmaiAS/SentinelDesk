@@ -1,0 +1,68 @@
+{% extends "core/base.html" %}
+
+{% block title %}Detection Rules | SentinelDesk{% endblock %}
+{% block page_title %}Detection Rules{% endblock %}
+
+{% block content %}
+<section class="sd-dashboard-intro">
+  <div>
+    <h2>Detection rules</h2>
+    <p>Configure how SentinelDesk evaluates recorded application events and suppresses duplicate alerts.</p>
+  </div>
+</section>
+<p class="text-secondary" role="note">
+  These rules inspect SentinelDesk login attempts, permission-denied API requests, and submitted incident records.
+  They do not monitor network traffic or scan external devices.
+</p>
+<section class="sd-dashboard-grid">
+  {% for row in rule_rows %}
+    <article class="sd-panel">
+      <header class="sd-panel-header">
+        <h3>{{ row.rule.name }}</h3>
+        {% if row.rule.enabled %}
+          <span class="sd-pill">Enabled</span>
+        {% else %}
+          <span class="sd-pill">Disabled</span>
+        {% endif %}
+      </header>
+      <p class="text-secondary">{{ row.rule.description }}</p>
+      <p><code>{{ row.rule.identifier }}</code></p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="rule_id" value="{{ row.rule.pk }}">
+        {% if row.form.non_field_errors %}
+          <div class="text-danger">{{ row.form.non_field_errors }}</div>
+        {% endif %}
+        <div class="form-check mb-3">
+          {{ row.form.enabled }}
+          <label class="form-check-label" for="{{ row.form.enabled.id_for_label }}">Rule enabled</label>
+          {{ row.form.enabled.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="{{ row.form.threshold.id_for_label }}">Attempt threshold</label>
+          {{ row.form.threshold }}
+          {{ row.form.threshold.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="{{ row.form.window_seconds.id_for_label }}">Detection window (seconds)</label>
+          {{ row.form.window_seconds }}
+          {{ row.form.window_seconds.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="{{ row.form.severity.id_for_label }}">Alert severity</label>
+          {{ row.form.severity }}
+          {{ row.form.severity.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="{{ row.form.suppression_seconds.id_for_label }}">Duplicate suppression (seconds)</label>
+          {{ row.form.suppression_seconds }}
+          {{ row.form.suppression_seconds.errors }}
+        </div>
+        <button class="btn btn-outline-primary" type="submit">Save rule</button>
+      </form>
+    </article>
+  {% empty %}
+    <article class="sd-panel"><div class="sd-empty-state">No detection rules are configured.</div></article>
+  {% endfor %}
+</section>
+{% endblock %}

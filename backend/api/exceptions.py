@@ -1,8 +1,11 @@
 import logging
 
+from django.contrib.auth.models import AnonymousUser
 from rest_framework.views import exception_handler
 from rest_framework.response import Response
 
+from incidents.models import ActivityLog
+from incidents.services import log_activity
 
 logger = logging.getLogger("django.request")
 
@@ -26,6 +29,24 @@ def api_exception_handler(exc, context):
 
     original_data = response.data
     status_code = response.status_code
+    if status_code == 403:
+        request = context.get("request")
+        if request is not None:
+            actor = request.user
+            if isinstance(actor, AnonymousUser) or not actor.is_authenticated:
+                actor = None
+            try:
+                log_activity(
+                    action=ActivityLog.Action.ACCESS_DENIED,
+                    description=(
+                        f"Permission denied for {request.method} "
+                        f"{request.path[:250]}."
+                    ),
+                    actor=actor,
+                    request=request,
+                )
+            except Exception:
+                logger.exception("Could not record a permission-denied API event.")
     if status_code == 400:
         code = "validation_error"
     elif status_code == 401:

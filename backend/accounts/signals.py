@@ -1,10 +1,15 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.signals import user_logged_in, user_login_failed
+from django.contrib.auth.signals import (
+    user_logged_in,
+    user_logged_out,
+    user_login_failed,
+)
 from django.db.models.signals import post_migrate
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from incidents.services import record_login_attempt
+from incidents.services import log_activity
 
 from .models import UserProfile
 from .roles import ROLE_ADMINISTRATOR, ROLE_ANALYST, ROLE_REGULAR_USER
@@ -34,6 +39,26 @@ def record_failed_login(sender, credentials, request, **kwargs):
         successful=False,
         request=request,
     )
+
+
+@receiver(user_logged_out)
+def record_logout(sender, request, user, **kwargs):
+    if user is None:
+        return
+    try:
+        log_activity(
+            action="logout",
+            description=f"User {user.get_username()} signed out.",
+            actor=user,
+            request=request,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Could not record logout activity for user %s.",
+            user.pk,
+        )
 
 
 @receiver(post_migrate)

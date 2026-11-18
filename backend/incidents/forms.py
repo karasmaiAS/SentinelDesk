@@ -1,9 +1,35 @@
 from django import forms
 
-from .models import Incident
+from .models import (
+    INCIDENT_DESCRIPTION_MAX_LENGTH,
+    INCIDENT_TITLE_REQUIRED_ERROR,
+    INCIDENT_TITLE_MAX_LENGTH,
+    Incident,
+    validate_incident_title,
+)
 
 
 class IncidentSubmissionForm(forms.ModelForm):
+    title = forms.CharField(
+        max_length=INCIDENT_TITLE_MAX_LENGTH,
+        validators=[validate_incident_title],
+        error_messages={
+            "max_length": "Incident title must be 200 characters or fewer.",
+            "required": INCIDENT_TITLE_REQUIRED_ERROR,
+        },
+        help_text="Include at least one letter; maximum 200 characters.",
+    )
+    description = forms.CharField(
+        max_length=INCIDENT_DESCRIPTION_MAX_LENGTH,
+        widget=forms.Textarea(attrs={"rows": 5}),
+        error_messages={
+            "max_length": (
+                "Incident description must be 5,000 characters or fewer."
+            )
+        },
+        help_text="Maximum 5,000 characters.",
+    )
+
     class Meta:
         model = Incident
         fields = (
@@ -14,7 +40,6 @@ class IncidentSubmissionForm(forms.ModelForm):
             "evidence_reference",
         )
         widgets = {
-            "description": forms.Textarea(attrs={"rows": 5}),
             "evidence_reference": forms.TextInput(
                 attrs={"placeholder": "Optional link or reference"}
             ),

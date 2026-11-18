@@ -43,6 +43,11 @@
             <a class="sd-nav-link" href="{% url 'core:security_alerts' %}">
               <span class="sd-nav-icon" aria-hidden="true">!</span> Security alerts
             </a>
+            {% if sentineldesk_is_administrator %}
+              <a class="sd-nav-link" href="{% url 'core:detection_rules' %}">
+                <span class="sd-nav-icon" aria-hidden="true">⌁</span> Detection rules
+              </a>
+            {% endif %}
             <a class="sd-nav-link" href="{% url 'core:activity_logs' %}">
               <span class="sd-nav-icon" aria-hidden="true">◷</span> Activity logs
             </a>

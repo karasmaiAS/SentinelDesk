@@ -1,8 +1,5 @@
-from datetime import timedelta
-
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.utils import timezone
 
 from accounts.roles import can_investigate, is_administrator, is_analyst
 
@@ -191,7 +188,12 @@ def create_security_alert(
     alert_type,
     severity,
     related_user=None,
+    related_incident=None,
     source_ip=None,
+    detection_rule=None,
+    dedupe_key="",
+    auto_generated=False,
+    event_time=None,
     request=None,
 ):
     alert = SecurityAlert(
@@ -200,6 +202,10 @@ def create_security_alert(
         alert_type=alert_type,
         severity=severity,
         related_user=related_user,
+        related_incident=related_incident,
+        detection_rule=detection_rule,
+        dedupe_key=dedupe_key,
+        auto_generated=auto_generated,
         source_ip=source_ip,
     )
     alert.full_clean()
@@ -260,50 +266,4 @@ def record_login_attempt(*, username, user=None, successful, request=None):
         actor=user if successful else None,
         request=request,
     )
-
-    window_start = timezone.now() - timedelta(minutes=10)
-    recent_failures = LoginAttempt.objects.filter(
-        successful=False,
-        attempted_at__gte=window_start,
-    )
-    if ip_address:
-        recent_failures = recent_failures.filter(ip_address=ip_address)
-    else:
-        recent_failures = recent_failures.filter(username=username[:150])
-
-    failure_count = recent_failures.count()
-    if failure_count >= 5:
-        alert_type = (
-            SecurityAlert.AlertType.SUSPICIOUS_LOGIN
-            if successful
-            else SecurityAlert.AlertType.REPEATED_FAILED_LOGINS
-        )
-        existing_alert = SecurityAlert.objects.filter(
-            alert_type=alert_type,
-            source_ip=ip_address,
-            status__in=(SecurityAlert.Status.OPEN, SecurityAlert.Status.INVESTIGATING),
-            created_at__gte=window_start,
-        ).exists()
-        if not existing_alert:
-            create_security_alert(
-                actor=user if successful else None,
-                title=(
-                    "Successful login after repeated failures"
-                    if successful
-                    else "Repeated failed login attempts"
-                ),
-                description=(
-                    f"{failure_count} failed sign-in attempts were observed in "
-                    "10 minutes before this event."
-                ),
-                alert_type=alert_type,
-                severity=(
-                    SecurityAlert.Severity.HIGH
-                    if successful
-                    else SecurityAlert.Severity.MEDIUM
-                ),
-                related_user=user,
-                source_ip=ip_address,
-                request=request,
-            )
     return attempt

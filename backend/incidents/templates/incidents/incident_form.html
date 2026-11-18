@@ -9,7 +9,7 @@
       <div class="card-body p-4">
         <h1 class="h3 mb-3">Report a cybersecurity incident</h1>
         <p class="text-secondary">Do not include passwords or other sensitive credentials.</p>
-        <form method="post" novalidate>
+        <form method="post" data-incident-title-form>
           {% csrf_token %}
           {% for field in form %}
             <div class="mb-3">
@@ -17,6 +17,9 @@
               {{ field }}
               {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
               {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+              {% if field.name == "title" and not field.errors %}
+                <div id="incident-title-validation" class="form-text text-danger" aria-live="polite"></div>
+              {% endif %}
             </div>
           {% endfor %}
           {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
@@ -27,4 +30,42 @@
     </div>
   </div>
 </div>
+<script>
+  (() => {
+    const title = document.getElementById("id_title");
+    if (!title) return;
+    const messages = {
+      required: "Incident title is required.",
+      numeric: "Incident title cannot contain only numbers. Include at least one letter.",
+      special: "Incident title cannot contain only special characters. Include at least one letter.",
+      letter: "Incident title must contain at least one letter."
+    };
+    const note = document.getElementById("incident-title-validation");
+    const validateTitle = () => {
+      const value = title.value.trim();
+      let message = "";
+      if (value && !/\p{L}/u.test(value)) {
+        if (/^\p{N}+$/u.test(value)) {
+          message = messages.numeric;
+        } else if (/^[^\p{L}\p{N}]+$/u.test(value)) {
+          message = messages.special;
+        } else {
+          message = messages.letter;
+        }
+      } else if (!value && title.value) {
+        message = messages.required;
+      }
+      title.setCustomValidity(message);
+      if (note) note.textContent = message;
+    };
+    title.addEventListener("input", validateTitle);
+    title.addEventListener("invalid", () => {
+      if (!title.value.trim()) {
+        title.setCustomValidity(messages.required);
+        if (note) note.textContent = messages.required;
+      }
+    });
+    validateTitle();
+  })();
+</script>
 {% endblock %}
